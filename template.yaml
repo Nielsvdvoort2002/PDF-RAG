@@ -1,0 +1,219 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: PDF RAG — FastAPI on Lambda (streaming) + React on S3/CloudFront
+
+Parameters:
+  GroqApiKey:
+    Type: String
+    NoEcho: true
+    Description: Groq API key (console.groq.com)
+  PineconeApiKey:
+    Type: String
+    NoEcho: true
+    Description: Pinecone API key
+  PineconeIndexName:
+    Type: String
+    Default: pdf-rag
+    Description: Pinecone index name
+  UploadApiKey:
+    Type: String
+    NoEcho: true
+    Description: Secret key required to upload PDFs (set this to anything you like)
+
+Globals:
+  Function:
+    Timeout: 900        # 15-min max; covers large PDF uploads + long LLM responses
+    MemorySize: 1024    # embedding model (BAAI/bge-small-en-v1.5) needs ~500 MB
+
+Resources:
+
+  # ── Storage ────────────────────────────────────────────────────────────────
+
+  PdfBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${AWS::StackName}-pdfs-${AWS::AccountId}"
+
+  FrontendBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${AWS::StackName}-frontend-${AWS::AccountId}"
+
+  # ── DynamoDB ───────────────────────────────────────────────────────────────
+
+  SessionsTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain       # preserve chat history if the stack is deleted
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: pdf-rag-sessions
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: session_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: session_id
+          KeyType: HASH
+
+  MessagesTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: pdf-rag-messages
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: session_id
+          AttributeType: S
+        - AttributeName: timestamp
+          AttributeType: S
+      KeySchema:
+        - AttributeName: session_id
+          KeyType: HASH
+        - AttributeName: timestamp
+          KeyType: RANGE
+
+  DocumentsTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: pdf-rag-documents
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: document_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: document_id
+          KeyType: HASH
+
+  # ── Lambda ─────────────────────────────────────────────────────────────────
+
+  BackendFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      PackageType: Image
+      ImageConfig:
+        Command: ["app.lambda_handler.handler"]
+      FunctionUrlConfig:
+        AuthType: NONE
+        InvokeMode: RESPONSE_STREAM   # required for SSE streaming to reach the client
+        Cors:
+          AllowOrigins: ["*"]
+          AllowMethods: ["*"]
+          AllowHeaders: ["*"]
+      Environment:
+        Variables:
+          ENVIRONMENT: prod
+          GROQ_API_KEY: !Ref GroqApiKey
+          PINECONE_API_KEY: !Ref PineconeApiKey
+          PINECONE_INDEX_NAME: !Ref PineconeIndexName
+          S3_BUCKET_NAME: !Ref PdfBucket
+          UPLOAD_API_KEY: !Ref UploadApiKey
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref SessionsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref MessagesTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref DocumentsTable
+        - S3CrudPolicy:
+            BucketName: !Ref PdfBucket
+    Metadata:
+      DockerTag: latest
+      DockerContext: ./backend
+      Dockerfile: Dockerfile
+
+  # ── CloudFront ─────────────────────────────────────────────────────────────
+
+  FrontendOAC:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub "${AWS::StackName}-frontend-oac"
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  FrontendBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref FrontendBucket
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub "${FrontendBucket.Arn}/*"
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${Distribution}"
+
+  Distribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        HttpVersion: http2
+        DefaultRootObject: index.html
+
+        Origins:
+          - Id: Frontend
+            DomainName: !GetAtt FrontendBucket.RegionalDomainName
+            S3OriginConfig:
+              OriginAccessIdentity: ""
+            OriginAccessControlId: !GetAtt FrontendOAC.Id
+
+          - Id: Backend
+            # Extract hostname from "https://<id>.lambda-url.<region>.on.aws/"
+            DomainName: !Select
+              - 2
+              - !Split ["/", !GetAtt BackendFunctionUrl.FunctionUrl]
+            CustomOriginConfig:
+              HTTPSPort: 443
+              OriginProtocolPolicy: https-only
+              OriginReadTimeout: 60        # seconds between SSE chunks; increase for very slow models
+              OriginKeepaliveTimeout: 60
+
+        DefaultCacheBehavior:
+          TargetOriginId: Frontend
+          ViewerProtocolPolicy: redirect-to-https
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6  # CachingOptimized (managed)
+          Compress: true
+
+        CacheBehaviors:
+          - PathPattern: /api/*
+            TargetOriginId: Backend
+            ViewerProtocolPolicy: https-only
+            AllowedMethods: [DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT]
+            CachedMethods: [GET, HEAD, OPTIONS]
+            # CachingDisabled (managed) — API responses must never be cached
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+            # AllViewerExceptHostHeader (managed) — forward all headers except Host so
+            # CloudFront uses the Lambda URL's own hostname on the origin side
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
+            Compress: false   # compression breaks SSE; Lambda streams raw text/event-stream
+
+        # Redirect S3 403/404 → index.html so the React SPA handles its own routing
+        CustomErrorResponses:
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+
+Outputs:
+  FrontendUrl:
+    Description: Public URL — open this in the browser
+    Value: !Sub "https://${Distribution.DomainName}"
+  BackendFunctionUrl:
+    Description: Lambda Function URL (direct, for debugging)
+    Value: !GetAtt BackendFunctionUrl.FunctionUrl
+  PdfBucketName:
+    Description: S3 bucket for uploaded PDFs
+    Value: !Ref PdfBucket
+  FrontendBucketName:
+    Description: S3 bucket to upload the built frontend into
+    Value: !Ref FrontendBucket

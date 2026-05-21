@@ -1,0 +1,74 @@
+import json
+
+from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
+
+from app.models.chat import (
+    ChatRequest,
+    CreateSessionRequest,
+    CreateSessionResponse,
+    SessionResponse,
+    ChatMessage,
+)
+from app.services import database, embeddings, llm
+from app.services.vector_store import get_vector_store
+
+router = APIRouter()
+
+
+@router.post("/sessions", response_model=CreateSessionResponse)
+async def create_session(body: CreateSessionRequest):
+    session_id = database.create_session(body.document_ids)
+    return CreateSessionResponse(session_id=session_id)
+
+
+@router.get("/sessions/{session_id}", response_model=SessionResponse)
+async def get_session(session_id: str):
+    session = database.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found.")
+
+    raw_messages = database.get_messages(session_id)
+    messages = [ChatMessage(role=m["role"], content=m["content"]) for m in raw_messages]
+
+    return SessionResponse(
+        session_id=session_id,
+        document_ids=session["document_ids"],
+        messages=messages,
+    )
+
+
+@router.post("/chat")
+async def chat(request: ChatRequest):
+    session = database.get_session(request.session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found.")
+
+    query_embedding = embeddings.embed([request.message])[0]
+
+    document_ids = request.document_ids or session.get("document_ids")
+    store = get_vector_store()
+    context_chunks = store.search(query_embedding, document_ids=document_ids, top_k=5)
+
+    history = database.get_messages(request.session_id)
+    messages = llm.build_messages(request.message, context_chunks, history)
+
+    database.save_message(request.session_id, "user", request.message)
+
+    full_response: list[str] = []
+
+    def generate():
+        for token in llm.stream_response(messages):
+            full_response.append(token)
+            yield f"data: {json.dumps({'content': token})}\n\n"
+
+        complete = "".join(full_response)
+        database.save_message(request.session_id, "assistant", complete)
+
+        serializable_chunks = [
+            {"text": c["text"], "document_id": c["document_id"], "chunk_index": c["chunk_index"]}
+            for c in context_chunks
+        ]
+        yield f"data: {json.dumps({'done': True, 'sources': serializable_chunks})}\n\n"
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
