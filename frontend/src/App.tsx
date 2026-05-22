@@ -1,16 +1,16 @@
 import { useState, useCallback, useEffect } from 'react'
-import { createSession, getSession, listDocuments } from './api/client'
+import { createSession, getSession, listDocuments, reindexDocuments, deleteDocument, clearDocuments } from './api/client'
 import Sidebar from './components/Sidebar'
 import ChatWindow from './components/ChatWindow'
 import { useChat } from './hooks/useChat'
 import type { UploadedDoc } from './hooks/useUpload'
 
-const STORAGE_KEY = 'pdf-rag-state'
+const SESSION_KEY = 'pdf-rag-state'
 const UPLOAD_KEY_STORAGE = 'pdf-rag-upload-key'
 
 function loadStoredSessionId(): string | null {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
+    const raw = localStorage.getItem(SESSION_KEY)
     return raw ? (JSON.parse(raw)?.sessionId ?? null) : null
   } catch {
     return null
@@ -25,37 +25,46 @@ export default function App() {
 
   const { messages, sendMessage, loading, initMessages } = useChat(sessionId)
 
-  // On mount: load documents from server and restore chat history from stored session
+  // On mount: load documents from server and restore or create a chat session
   useEffect(() => {
-    listDocuments()
-      .then(serverDocs => {
-        setDocs(serverDocs.map(d => ({ ...d, active: true })))
-      })
-      .catch(() => {})
+    ;(async () => {
+      const loadedDocs = await listDocuments()
+        .then(ds => ds.map(d => ({ ...d, active: true })))
+        .catch(() => [] as UploadedDoc[])
+      if (loadedDocs.length) setDocs(loadedDocs)
 
-    const storedSession = loadStoredSessionId()
-    if (!storedSession) return
-    getSession(storedSession)
-      .then(session => {
-        initMessages(
-          session.messages.map(m => ({
-            id: crypto.randomUUID(),
-            role: m.role,
-            content: m.content,
-          })),
-        )
-      })
-      .catch(() => {
-        localStorage.removeItem(STORAGE_KEY)
-        setSessionId(null)
-      })
+      const storedSession = loadStoredSessionId()
+      if (storedSession) {
+        try {
+          const session = await getSession(storedSession)
+          initMessages(
+            session.messages.map(m => ({
+              id: crypto.randomUUID(),
+              role: m.role,
+              content: m.content,
+            })),
+          )
+          return
+        } catch {
+          localStorage.removeItem(SESSION_KEY)
+          setSessionId(null)
+        }
+      }
+
+      if (loadedDocs.length > 0) {
+        try {
+          const res = await createSession(loadedDocs.map(d => d.document_id))
+          setSessionId(res.session_id)
+        } catch {}
+      }
+    })()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Persist sessionId whenever it changes
   useEffect(() => {
     if (sessionId) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ sessionId }))
+      localStorage.setItem(SESSION_KEY, JSON.stringify({ sessionId }))
     }
   }, [sessionId])
 
@@ -73,15 +82,29 @@ export default function App() {
         try {
           const res = await createSession([doc.document_id])
           setSessionId(res.session_id)
-        } catch {
-          // session creation failed — user will see the disabled input
-        } finally {
+        } catch {}
+        finally {
           setSessionCreating(false)
         }
       }
     },
     [sessionId],
   )
+
+  const handleReindex = useCallback(() => reindexDocuments(uploadKey), [uploadKey])
+
+  const handleDeleteDoc = useCallback(
+    async (documentId: string) => {
+      await deleteDocument(documentId, uploadKey)
+      setDocs(prev => prev.filter(d => d.document_id !== documentId))
+    },
+    [uploadKey],
+  )
+
+  const handleClearDocs = useCallback(async () => {
+    await clearDocuments(uploadKey)
+    setDocs([])
+  }, [uploadKey])
 
   const handleToggleDoc = useCallback((documentId: string) => {
     setDocs(prev =>
@@ -104,8 +127,11 @@ export default function App() {
         docs={docs}
         onDocAdded={handleDocAdded}
         onToggleDoc={handleToggleDoc}
+        onDeleteDoc={handleDeleteDoc}
+        onClearDocs={handleClearDocs}
         uploadKey={uploadKey}
         onUploadKeyChange={handleUploadKeyChange}
+        onReindex={handleReindex}
       />
       <ChatWindow
         messages={messages}

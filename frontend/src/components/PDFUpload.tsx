@@ -7,7 +7,7 @@ interface PDFUploadProps {
 }
 
 export default function PDFUpload({ onDocAdded, uploadKey }: PDFUploadProps) {
-  const { state, error, upload } = useUpload(uploadKey)
+  const { uploading, error, upload } = useUpload(uploadKey)
   const [dragging, setDragging] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -34,7 +34,7 @@ export default function PDFUpload({ onDocAdded, uploadKey }: PDFUploadProps) {
     e.target.value = ''
   }
 
-  const uploading = state === 'uploading'
+  const hasUploadKey = uploadKey.trim().length > 0
 
   return (
     <div>
@@ -45,7 +45,7 @@ export default function PDFUpload({ onDocAdded, uploadKey }: PDFUploadProps) {
         onDragOver={onDragOver}
         onDragLeave={onDragLeave}
         onDrop={onDrop}
-        disabled={uploading}
+        disabled={uploading || !hasUploadKey}
         className={[
           'w-full rounded-lg border border-dashed py-3.5 px-3 text-center transition-all duration-150',
           dragging
@@ -69,6 +69,12 @@ export default function PDFUpload({ onDocAdded, uploadKey }: PDFUploadProps) {
           </span>
         )}
       </button>
+
+      {!hasUploadKey && (
+        <p className="mt-1.5 text-xs font-mono text-ink-dim px-1">
+          Enter your upload key before uploading a PDF.
+        </p>
+      )}
 
       {error && (
         <p className="mt-1.5 text-xs font-mono text-signal-fail px-1 truncate" title={error}>

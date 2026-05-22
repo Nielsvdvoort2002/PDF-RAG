@@ -17,6 +17,7 @@ instance/
 
 # AWS SAM
 .aws-sam/
+samconfig.toml
 
 # Docker
 docker-compose.override.yml

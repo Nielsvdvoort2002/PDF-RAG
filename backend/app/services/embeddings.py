@@ -1,15 +1,14 @@
-from functools import lru_cache
-from fastembed import TextEmbedding
+from pinecone import Pinecone
 from app.config import get_settings
 
 settings = get_settings()
+_client = Pinecone(api_key=settings.pinecone_api_key)
 
 
-@lru_cache(maxsize=1)
-def _get_model() -> TextEmbedding:
-    return TextEmbedding(model_name=settings.embedding_model)
-
-
-def embed(texts: list[str]) -> list[list[float]]:
-    model = _get_model()
-    return [vec.tolist() for vec in model.embed(texts)]
+def embed(texts: list[str], input_type: str = "passage") -> list[list[float]]:
+    result = _client.inference.embed(
+        model=settings.embedding_model,
+        inputs=texts,
+        parameters={"input_type": input_type, "truncate": "END"},
+    )
+    return [item["values"] for item in result]

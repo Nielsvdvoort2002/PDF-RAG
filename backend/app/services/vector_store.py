@@ -1,4 +1,7 @@
 from abc import ABC, abstractmethod
+from functools import lru_cache
+
+from pinecone import Pinecone
 from app.config import get_settings
 
 settings = get_settings()
@@ -27,8 +30,6 @@ class VectorStore(ABC):
 
 class PineconeVectorStore(VectorStore):
     def __init__(self) -> None:
-        from pinecone import Pinecone
-
         pc = Pinecone(api_key=settings.pinecone_api_key)
         self.index = pc.Index(settings.pinecone_index_name)
 
@@ -71,13 +72,11 @@ class PineconeVectorStore(VectorStore):
         ]
 
     def delete_document(self, document_id: str) -> None:
-        ids_to_delete = [
-            v["id"]
-            for v in self.index.list(prefix=f"{document_id}_")
-        ]
+        ids_to_delete = [v["id"] for v in self.index.list(prefix=f"{document_id}_")]
         if ids_to_delete:
             self.index.delete(ids=ids_to_delete)
 
 
+@lru_cache(maxsize=1)
 def get_vector_store() -> VectorStore:
     return PineconeVectorStore()

@@ -22,7 +22,7 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
     )
   }
 
-  const isThinking = message.streaming && message.content === ''
+  const isThinking = message.content === ''
 
   return (
     <div className="flex gap-3 animate-fade-up">
@@ -65,9 +65,6 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
               "
             >
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
-              {message.streaming && (
-                <span className="inline-block w-[2px] h-4 bg-accent animate-blink ml-0.5 align-middle rounded-full" />
-              )}
             </div>
           )}
         </div>

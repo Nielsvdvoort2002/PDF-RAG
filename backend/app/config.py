@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     dynamodb_sessions_table: str = "pdf-rag-sessions"
     dynamodb_messages_table: str = "pdf-rag-messages"
     dynamodb_documents_table: str = "pdf-rag-documents"
+    dynamodb_endpoint_url: str = ""
 
     # Auth
     upload_api_key: str = ""
@@ -24,12 +25,11 @@ class Settings(BaseSettings):
     pinecone_index_name: str = "pdf-rag"
 
     # Embeddings
-    embedding_model: str = "BAAI/bge-small-en-v1.5"
+    embedding_model: str = "llama-text-embed-v2"
 
     # RAG tuning
     chunk_size: int = 512
     chunk_overlap: int = 50
-    top_k: int = 5
 
     model_config = {"env_file": ".env"}
 

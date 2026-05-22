@@ -1,3 +1,5 @@
+import { useState } from 'react'
+import type { ReindexResult } from '../api/client'
 import type { UploadedDoc } from '../hooks/useUpload'
 import PDFUpload from './PDFUpload'
 
@@ -5,12 +7,52 @@ interface SidebarProps {
   docs: UploadedDoc[]
   onDocAdded: (doc: Omit<UploadedDoc, 'active'>) => void
   onToggleDoc: (documentId: string) => void
+  onDeleteDoc: (documentId: string) => Promise<void>
+  onClearDocs: () => Promise<void>
   uploadKey: string
   onUploadKeyChange: (key: string) => void
+  onReindex: () => Promise<{ results: ReindexResult[] }>
 }
 
-export default function Sidebar({ docs, onDocAdded, onToggleDoc, uploadKey, onUploadKeyChange }: SidebarProps) {
+export default function Sidebar({ docs, onDocAdded, onToggleDoc, onDeleteDoc, onClearDocs, uploadKey, onUploadKeyChange, onReindex }: SidebarProps) {
   const activeCount = docs.filter(d => d.active).length
+  const [reindexing, setReindexing] = useState(false)
+  const [reindexStatus, setReindexStatus] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [clearing, setClearing] = useState(false)
+  const hasKey = uploadKey.trim().length > 0
+
+  const handleDelete = async (documentId: string) => {
+    setDeletingId(documentId)
+    try {
+      await onDeleteDoc(documentId)
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
+  const handleClear = async () => {
+    setClearing(true)
+    try {
+      await onClearDocs()
+    } finally {
+      setClearing(false)
+    }
+  }
+
+  const handleReindex = async () => {
+    setReindexing(true)
+    setReindexStatus(null)
+    try {
+      const { results } = await onReindex()
+      const ok = results.filter(r => r.status === 'ok').length
+      setReindexStatus(`Re-indexed ${ok}/${results.length} documents`)
+    } catch (e) {
+      setReindexStatus(e instanceof Error ? e.message : 'Failed')
+    } finally {
+      setReindexing(false)
+    }
+  }
 
   return (
     <aside
@@ -43,11 +85,24 @@ export default function Sidebar({ docs, onDocAdded, onToggleDoc, uploadKey, onUp
           <span className="text-[10px] font-mono font-medium text-ink-dim uppercase tracking-widest">
             Documents
           </span>
-          {docs.length > 0 && (
-            <span className="text-[10px] font-mono text-ink-dim bg-surface border border-wire px-1.5 py-0.5 rounded">
-              {activeCount}/{docs.length} active
-            </span>
-          )}
+          <div className="flex items-center gap-1.5">
+            {docs.length > 0 && (
+              <span className="text-[10px] font-mono text-ink-dim bg-surface border border-wire px-1.5 py-0.5 rounded">
+                {activeCount}/{docs.length} active
+              </span>
+            )}
+            {docs.length > 0 && hasKey && (
+              <button
+                type="button"
+                onClick={handleClear}
+                disabled={clearing}
+                title="Remove all documents"
+                className="text-[10px] font-mono text-ink-dim hover:text-signal-fail transition-colors disabled:opacity-40"
+              >
+                {clearing ? '…' : 'clear all'}
+              </button>
+            )}
+          </div>
         </div>
 
         {docs.length === 0 ? (
@@ -61,17 +116,20 @@ export default function Sidebar({ docs, onDocAdded, onToggleDoc, uploadKey, onUp
         ) : (
           <ul className="px-2 pb-2 space-y-0.5">
             {docs.map(doc => (
-              <li key={doc.document_id}>
+              <li
+                key={doc.document_id}
+                className={[
+                  'flex items-center gap-1 rounded-lg transition-all duration-150',
+                  doc.active
+                    ? 'bg-accent/10 border border-accent/25'
+                    : 'border border-transparent hover:bg-surface',
+                ].join(' ')}
+              >
                 <button
                   type="button"
                   onClick={() => onToggleDoc(doc.document_id)}
                   title={doc.filename}
-                  className={[
-                    'w-full flex items-center gap-2.5 px-2 py-2 rounded-lg text-left transition-all duration-150',
-                    doc.active
-                      ? 'bg-accent/10 border border-accent/25'
-                      : 'border border-transparent hover:bg-surface',
-                  ].join(' ')}
+                  className="flex-1 flex items-center gap-2.5 px-2 py-2 text-left min-w-0"
                 >
                   <span
                     className={[
@@ -91,6 +149,17 @@ export default function Sidebar({ docs, onDocAdded, onToggleDoc, uploadKey, onUp
                     {doc.chunk_count}
                   </span>
                 </button>
+                {hasKey && (
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(doc.document_id)}
+                    disabled={deletingId === doc.document_id}
+                    title="Remove document"
+                    className="flex-shrink-0 w-6 h-6 flex items-center justify-center text-ink-dim hover:text-signal-fail transition-colors disabled:opacity-40 rounded mr-1"
+                  >
+                    {deletingId === doc.document_id ? '…' : '×'}
+                  </button>
+                )}
               </li>
             ))}
           </ul>
@@ -113,6 +182,29 @@ export default function Sidebar({ docs, onDocAdded, onToggleDoc, uploadKey, onUp
           />
         </div>
         <PDFUpload onDocAdded={onDocAdded} uploadKey={uploadKey} />
+
+        {docs.length > 0 && uploadKey.trim().length > 0 && (
+          <div>
+            <button
+              type="button"
+              onClick={handleReindex}
+              disabled={reindexing}
+              className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg border border-wire text-xs font-mono text-ink-dim hover:border-accent/40 hover:text-ink-base transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {reindexing ? (
+                <>
+                  <span className="w-3 h-3 rounded-full border-2 border-accent/30 border-t-accent animate-spin" />
+                  Re-indexing…
+                </>
+              ) : (
+                'Re-index documents'
+              )}
+            </button>
+            {reindexStatus && (
+              <p className="mt-1 text-[10px] font-mono text-ink-dim px-1">{reindexStatus}</p>
+            )}
+          </div>
+        )}
       </div>
     </aside>
   )

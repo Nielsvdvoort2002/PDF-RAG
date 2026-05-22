@@ -1,3 +1,5 @@
+import io
+
 import pdfplumber
 from app.config import get_settings
 
@@ -12,14 +14,12 @@ def extract_and_chunk(file_bytes: bytes) -> list[str]:
 
 
 def _extract_text(file_bytes: bytes) -> str:
-    import io
-    pages: list[str] = []
-    with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
-        for page in pdf.pages:
-            page_text = page.extract_text()
-            if page_text:
-                pages.append(page_text)
-    return "\n\n".join(pages)
+    try:
+        with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+            pages = [p.extract_text() for p in pdf.pages]
+        return "\n\n".join(p for p in pages if p)
+    except Exception as e:
+        raise ValueError(f"PDF processing failed: {e}")
 
 
 def _chunk(text: str, size: int, overlap: int) -> list[str]:
@@ -27,7 +27,6 @@ def _chunk(text: str, size: int, overlap: int) -> list[str]:
     chunks: list[str] = []
     start = 0
     while start < len(words):
-        end = start + size
-        chunks.append(" ".join(words[start:end]))
+        chunks.append(" ".join(words[start : start + size]))
         start += size - overlap
     return chunks

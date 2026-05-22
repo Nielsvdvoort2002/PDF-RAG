@@ -93,11 +93,9 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       PackageType: Image
-      ImageConfig:
-        Command: ["app.lambda_handler.handler"]
       FunctionUrlConfig:
         AuthType: NONE
-        InvokeMode: RESPONSE_STREAM   # required for SSE streaming to reach the client
+        InvokeMode: RESPONSE_STREAM
         Cors:
           AllowOrigins: ["*"]
           AllowMethods: ["*"]
@@ -105,6 +103,9 @@ Resources:
       Environment:
         Variables:
           ENVIRONMENT: prod
+          AWS_LWA_PORT: "8080"
+          AWS_LWA_READINESS_CHECK_PATH: /health
+          AWS_LWA_INVOKE_MODE: response_stream
           GROQ_API_KEY: !Ref GroqApiKey
           PINECONE_API_KEY: !Ref PineconeApiKey
           PINECONE_INDEX_NAME: !Ref PineconeIndexName
@@ -193,16 +194,10 @@ Resources:
             # AllViewerExceptHostHeader (managed) — forward all headers except Host so
             # CloudFront uses the Lambda URL's own hostname on the origin side
             OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
-            Compress: false   # compression breaks SSE; Lambda streams raw text/event-stream
+            Compress: true
 
-        # Redirect S3 403/404 → index.html so the React SPA handles its own routing
-        CustomErrorResponses:
-          - ErrorCode: 403
-            ResponseCode: 200
-            ResponsePagePath: /index.html
-          - ErrorCode: 404
-            ResponseCode: 200
-            ResponsePagePath: /index.html
+        # NOTE: Do not rewrite /api/* errors to index.html, otherwise backend errors return HTML instead of JSON.
+        # The frontend SPA should instead be hosted with a separate fallback strategy if needed.
 
 Outputs:
   FrontendUrl:

@@ -39,36 +39,37 @@ async def get_session(session_id: str):
 
 
 @router.post("/chat")
-async def chat(request: ChatRequest):
+def chat(request: ChatRequest):
     session = database.get_session(request.session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found.")
 
-    query_embedding = embeddings.embed([request.message])[0]
+    query_embedding = embeddings.embed([request.message], input_type="query")[0]
 
     document_ids = request.document_ids or session.get("document_ids")
-    store = get_vector_store()
-    context_chunks = store.search(query_embedding, document_ids=document_ids, top_k=5)
+    context_chunks = get_vector_store().search(query_embedding, document_ids=document_ids, top_k=3)
 
     history = database.get_messages(request.session_id)
     messages = llm.build_messages(request.message, context_chunks, history)
 
     database.save_message(request.session_id, "user", request.message)
 
-    full_response: list[str] = []
-
     def generate():
-        for token in llm.stream_response(messages):
-            full_response.append(token)
-            yield f"data: {json.dumps({'content': token})}\n\n"
+        yield json.dumps({"type": "meta", "sources": context_chunks}) + "\n"
+        tokens: list[str] = []
+        error: str | None = None
+        try:
+            for token in llm.stream_response(messages):
+                tokens.append(token)
+                yield json.dumps({"type": "delta", "c": token}) + "\n"
+        except Exception as e:
+            error = str(e)
+        full = "".join(tokens)
+        if full:
+            database.save_message(request.session_id, "assistant", full)
+        if error:
+            yield json.dumps({"type": "error", "message": error}) + "\n"
+        else:
+            yield json.dumps({"type": "end"}) + "\n"
 
-        complete = "".join(full_response)
-        database.save_message(request.session_id, "assistant", complete)
-
-        serializable_chunks = [
-            {"text": c["text"], "document_id": c["document_id"], "chunk_index": c["chunk_index"]}
-            for c in context_chunks
-        ]
-        yield f"data: {json.dumps({'done': True, 'sources': serializable_chunks})}\n\n"
-
-    return StreamingResponse(generate(), media_type="text/event-stream")
+    return StreamingResponse(generate(), media_type="application/x-ndjson")
