@@ -69,13 +69,19 @@ jobs:
       - name: SAM deploy
         run: |
           sam deploy \
+            --stack-name pdf-rag \
+            --region eu-central-1 \
+            --capabilities CAPABILITY_IAM \
+            --resolve-s3 \
+            --s3-prefix pdf-rag \
+            --image-repositories BackendFunction=${{ secrets.ECR_IMAGE_REPOSITORY }} \
             --no-confirm-changeset \
             --no-fail-on-empty-changeset \
             --parameter-overrides \
-              "GroqApiKey=${{ secrets.GROQ_API_KEY }}" \
-              "PineconeApiKey=${{ secrets.PINECONE_API_KEY }}" \
-              "PineconeIndexName=pdf-rag" \
-              "UploadApiKey=${{ secrets.UPLOAD_API_KEY }}"
+              GroqApiKey="${{ secrets.GROQ_API_KEY }}" \
+              PineconeApiKey="${{ secrets.PINECONE_API_KEY }}" \
+              PineconeIndexName="pdf-rag" \
+              UploadApiKey="${{ secrets.UPLOAD_API_KEY }}"
 
       # ── Frontend ────────────────────────────────────────────────────────────
 
