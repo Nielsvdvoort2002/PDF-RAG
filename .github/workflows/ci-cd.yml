@@ -24,14 +24,6 @@ jobs:
 
       - name: Run pytest
         run: pytest backend/tests/ -v
-        env:
-          ENVIRONMENT: test
-          # Provide dummy values so settings validators don't fail at import time
-          GROQ_API_KEY: dummy
-          PINECONE_API_KEY: dummy
-          PINECONE_INDEX_NAME: dummy
-          S3_BUCKET_NAME: dummy
-          UPLOAD_API_KEY: dummy
 
   # ── Deploy backend (SAM) + frontend (S3) on merge to main ─────────────────
   deploy:

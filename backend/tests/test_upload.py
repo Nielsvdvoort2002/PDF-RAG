@@ -38,11 +38,12 @@ def test_upload_rejects_non_pdf():
     assert response.status_code == 400
 
 
+@patch("app.routers.upload.database.save_document")
 @patch("app.routers.upload.storage.upload_pdf", return_value="documents/abc/test.pdf")
 @patch("app.routers.upload.embeddings.embed", return_value=[[0.1] * 384])
 @patch("app.routers.upload.pdf_processor.extract_and_chunk", return_value=["chunk one"])
 @patch("app.routers.upload.get_vector_store")
-def test_upload_success(mock_store, mock_chunk, mock_embed, mock_s3):
+def test_upload_success(mock_store, mock_chunk, mock_embed, mock_s3, mock_db):
     mock_store.return_value.add_documents = MagicMock()
 
     response = client.post(

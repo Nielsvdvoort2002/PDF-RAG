@@ -65,7 +65,7 @@ def test_chat_streams_response(
 
     assert response.status_code == 200
     assert "application/x-ndjson" in response.headers["content-type"]
-    assert b"content" in response.content
+    assert b'"type": "delta"' in response.content
 
 
 @patch("app.routers.chat.database.get_session", return_value=None)
