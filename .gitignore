@@ -1,0 +1,43 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+dist/
+build/
+.pytest_cache/
+coverage.xml
+htmlcov/
+instance/
+.webassets-cache
+
+.env
+.env.*
+*.sqlite3
+
+# AWS SAM
+.aws-sam/
+samconfig.toml
+
+# Docker
+docker-compose.override.yml
+
+# Node
+node_modules/
+frontend/node_modules/
+dist/
+frontend/dist/
+build/
+
+# VSCode
+.vscode/
+
+# Pyright / type checks
+.mypy_cache/
+.pyre/
+.pytype/
+
+# Logs
+logs/
+*.log
+
