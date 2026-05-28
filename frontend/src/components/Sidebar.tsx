@@ -72,9 +72,6 @@ export default function Sidebar({ docs, onDocAdded, onToggleDoc, onDeleteDoc, on
             <p className="font-display font-bold text-ink-bright leading-none tracking-tight">
               PDF RAG
             </p>
-            <p className="text-[10px] font-mono text-ink-dim mt-0.5 tracking-widest uppercase">
-              Document Intelligence
-            </p>
           </div>
         </div>
       </div>
