@@ -64,7 +64,7 @@ def test_chat_streams_response(
     )
 
     assert response.status_code == 200
-    assert "text/event-stream" in response.headers["content-type"]
+    assert "application/x-ndjson" in response.headers["content-type"]
     assert b"content" in response.content
 
 

@@ -5,8 +5,16 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.routers.upload import _require_upload_key
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def bypass_upload_key():
+    app.dependency_overrides[_require_upload_key] = lambda: None
+    yield
+    app.dependency_overrides.clear()
 
 MINIMAL_PDF = (
     b"%PDF-1.4\n"
