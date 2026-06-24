@@ -28,15 +28,19 @@ export default function App() {
   // On mount: load documents from server and restore or create a chat session
   useEffect(() => {
     ;(async () => {
-      const loadedDocs = await listDocuments()
-        .then(ds => ds.map(d => ({ ...d, active: true })))
-        .catch(() => [] as UploadedDoc[])
+      const storedSession = loadStoredSessionId()
+
+      const [loadedDocs, session] = await Promise.all([
+        listDocuments()
+          .then(ds => ds.map(d => ({ ...d, active: true })))
+          .catch(() => [] as UploadedDoc[]),
+        storedSession ? getSession(storedSession).catch(() => null) : Promise.resolve(null),
+      ])
+
       if (loadedDocs.length) setDocs(loadedDocs)
 
-      const storedSession = loadStoredSessionId()
       if (storedSession) {
-        try {
-          const session = await getSession(storedSession)
+        if (session) {
           initMessages(
             session.messages.map(m => ({
               id: crypto.randomUUID(),
@@ -45,10 +49,9 @@ export default function App() {
             })),
           )
           return
-        } catch {
-          localStorage.removeItem(SESSION_KEY)
-          setSessionId(null)
         }
+        localStorage.removeItem(SESSION_KEY)
+        setSessionId(null)
       }
 
       if (loadedDocs.length > 0) {
