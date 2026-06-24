@@ -33,7 +33,7 @@ def build_messages(
 
 def stream_response(messages: list[dict]) -> Iterator[str]:
     with _client().chat.completions.create(
-        model=settings.groq_model,
+        model=get_settings().groq_model,
         messages=messages,
         max_tokens=1024,
         temperature=0.2,

@@ -17,9 +17,9 @@ export default {
           muted:   '#3d3494',
         },
         ink: {
-          bright: '#ddddf4',
-          base:   '#8888b0',
-          dim:    '#4c4c6a',
+          bright: '#ffffff',
+          base:   '#ddddf4',
+          dim:    '#9898ba',
           muted:  '#252538',
         },
         signal: {
